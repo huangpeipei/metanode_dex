@@ -1,5 +1,3 @@
-@import "tailwindcss";
-
 :root {
   --background: #0a0a0f;
   --foreground: #ffffff;
@@ -18,10 +16,18 @@
   --font-mono: var(--font-geist-mono);
 }
 
-* {
+*,
+*::before,
+*::after {
   margin: 0;
-  padding: 0;
   box-sizing: border-box;
+}
+
+/* 只重置特定元素的 padding，而不是所有元素 */
+body,
+h1, h2, h3, h4, h5, h6,
+p, ul, ol, li {
+  padding: 0;
 }
 
 body {
@@ -62,3 +68,5 @@ body::before {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
+@import "tailwindcss";

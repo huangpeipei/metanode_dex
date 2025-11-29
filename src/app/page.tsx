@@ -7,7 +7,7 @@ export default function TradePage() {
       {/* Background gradient overlay */}
       <div className="fixed inset-0 bg-gradient-to-br from-indigo-950/20 via-purple-950/20 to-pink-950/20 pointer-events-none" />
 
-      <div className="relative z-10">
+      <div className="relative z-10 flex flex-col items-center justify-center">
         <Header />
 
         <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
