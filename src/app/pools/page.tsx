@@ -1,6 +1,8 @@
 "use client";
+import { useState, useEffect } from "react";
 import { Header } from "@/src/components/Header";
 import { usePools } from "@/src/hooks/usePools";
+import { CreatePoolModal } from "@/src/components/CreatePoolModal";
 import {
   formatPriceRange,
   formatCurrentPrice,
@@ -19,10 +21,46 @@ interface Pool {
 }
 
 export default function PoolsPage() {
-  const { pools, pairs, isLoadingPools, createPool, isPending, isConfirmed } =
-    usePools();
+  const {
+    pools,
+    pairs,
+    isLoadingPools,
+    createAndInitializePool,
+    isPending,
+    isConfirming,
+    isConfirmed,
+    writeError,
+    createdPoolAddress,
+    createPool,
+    refetchPools,
+  } = usePools();
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   console.log("pools", pools, pairs);
+
+  const handleCreatePool = async (params: {
+    token0: string;
+    token1: string;
+    fee: number;
+    tickLower: number;
+    tickUpper: number;
+  }) => {
+    await createPool(
+      params.token0 as `0x${string}`,
+      params.token1 as `0x${string}`,
+      params.tickLower,
+      params.tickUpper,
+      params.fee
+    );
+  };
+
+  // 交易确认后自动刷新池子列表
+  useEffect(() => {
+    if (isConfirmed) {
+      refetchPools();
+    }
+  }, [isConfirmed, refetchPools]);
 
   return (
     <div className="min-h-screen relative">
@@ -41,7 +79,10 @@ export default function PoolsPage() {
               </h1>
               <p className="text-gray-400">View all available pools</p>
             </div>
-            <button className="mt-4 md:mt-0 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold transition-all transform hover:scale-[1.02] shadow-lg shadow-indigo-500/50">
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="mt-4 md:mt-0 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold transition-all transform hover:scale-[1.02] shadow-lg shadow-indigo-500/50"
+            >
               Create New Pool
             </button>
           </div>
@@ -110,6 +151,17 @@ export default function PoolsPage() {
                 {/* Stats */}
                 <div className="space-y-3 mb-6">
                   <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-400">Pool Address</span>
+                    <span className="text-white font-semibold">
+                      {pool?.poolAddress
+                        ? `${pool.poolAddress.slice(
+                            0,
+                            6
+                          )}...${pool.poolAddress.slice(-4)}`
+                        : "--"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-400">Liquidity</span>
                     <span className="text-white font-semibold">
                       {pool?.liquidity}
@@ -139,16 +191,23 @@ export default function PoolsPage() {
                     </span>
                   </div>
                 </div>
-
-                {/* Action Button */}
-                <button className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium transition-colors">
-                  查看详情
-                </button>
               </div>
             ))}
           </div>
         </main>
       </div>
+
+      {/* 创建池子弹窗 */}
+      <CreatePoolModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreatePool={handleCreatePool}
+        isPending={isPending}
+        isConfirming={isConfirming}
+        isConfirmed={isConfirmed}
+        error={writeError}
+        poolAddress={createdPoolAddress}
+      />
     </div>
   );
 }
