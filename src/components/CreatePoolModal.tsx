@@ -3,6 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Address } from "viem";
 import { isValidAddress } from "@/src/utils/contractHelpers";
+import {
+  tickToSqrtPriceX96,
+  tickToPrice,
+  formatPrice,
+} from "@/src/utils/priceUtils";
 
 interface CreatePoolModalProps {
   isOpen: boolean;
@@ -13,6 +18,7 @@ interface CreatePoolModalProps {
     fee: number;
     tickLower: number;
     tickUpper: number;
+    sqrtPriceX96: bigint;
   }) => Promise<void>;
   isPending: boolean;
   isConfirming: boolean;
@@ -36,6 +42,7 @@ export function CreatePoolModal({
   const [fee, setFee] = useState("");
   const [tickLower, setTickLower] = useState("");
   const [tickUpper, setTickUpper] = useState("");
+  const [selectedTick, setSelectedTick] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string>("");
 
@@ -48,8 +55,26 @@ export function CreatePoolModal({
     if (isOpen) {
       hasSubmittedRef.current = false;
       setSubmitError("");
+      setSelectedTick(null);
     }
   }, [isOpen]);
+
+  // 当 tickLower 和 tickUpper 变化时，更新选中的 tick（默认为 tickLower）
+  useEffect(() => {
+    if (
+      tickLower &&
+      tickUpper &&
+      !isNaN(Number(tickLower)) &&
+      !isNaN(Number(tickUpper))
+    ) {
+      const lower = Number(tickLower);
+      const upper = Number(tickUpper);
+      if (lower < upper) {
+        // 默认选择最小值（tickLower）
+        setSelectedTick(lower);
+      }
+    }
+  }, [tickLower, tickUpper]);
 
   // 交易确认成功后关闭弹窗并重置表单
   // 只有当弹窗打开、交易确认成功、且是在当前弹窗打开期间提交的交易时才执行
@@ -71,6 +96,7 @@ export function CreatePoolModal({
         setFee("");
         setTickLower("");
         setTickUpper("");
+        setSelectedTick(null);
         setErrors({});
         setSubmitError("");
         hasSubmittedRef.current = false;
@@ -130,6 +156,10 @@ export function CreatePoolModal({
     hasSubmittedRef.current = true;
     processedConfirmationRef.current = undefined;
 
+    // 计算 sqrtPriceX96
+    const tick = selectedTick !== null ? selectedTick : Number(tickLower);
+    const sqrtPriceX96 = tickToSqrtPriceX96(tick);
+
     try {
       await onCreatePool({
         token0: token0 as Address,
@@ -137,6 +167,7 @@ export function CreatePoolModal({
         fee: Number(fee),
         tickLower: Number(tickLower),
         tickUpper: Number(tickUpper),
+        sqrtPriceX96,
       });
       // 不在这里关闭弹窗，等待交易确认
     } catch (error) {
@@ -157,6 +188,7 @@ export function CreatePoolModal({
       setFee("");
       setTickLower("");
       setTickUpper("");
+      setSelectedTick(null);
       setErrors({});
       setSubmitError("");
       onClose();
@@ -290,6 +322,48 @@ export function CreatePoolModal({
               <p className="mt-1 text-sm text-red-400">{errors.tickUpper}</p>
             )}
           </div>
+
+          {/* 价格选择滑块 */}
+          {tickLower &&
+            tickUpper &&
+            !isNaN(Number(tickLower)) &&
+            !isNaN(Number(tickUpper)) &&
+            Number(tickLower) < Number(tickUpper) &&
+            selectedTick !== null && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  选择初始价格 (Tick: {selectedTick})
+                </label>
+                <div className="space-y-2">
+                  <input
+                    type="range"
+                    min={Number(tickLower)}
+                    max={Number(tickUpper)}
+                    value={selectedTick}
+                    onChange={(e) => setSelectedTick(Number(e.target.value))}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    disabled={isPending || isConfirming}
+                  />
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>
+                      Min: {Number(tickLower)}
+                      <br />
+                      Price: {formatPrice(tickToPrice(Number(tickLower)))}
+                    </span>
+                    <span className="text-indigo-400 font-semibold">
+                      Selected: {selectedTick}
+                      <br />
+                      Price: {formatPrice(tickToPrice(selectedTick))}
+                    </span>
+                    <span>
+                      Max: {Number(tickUpper)}
+                      <br />
+                      Price: {formatPrice(tickToPrice(Number(tickUpper)))}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
           {/* 错误信息显示 */}
           {submitError && (

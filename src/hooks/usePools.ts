@@ -133,7 +133,8 @@ export function usePools() {
     token1: Address,
     fee: number,
     tickLower: number,
-    tickUpper: number
+    tickUpper: number,
+    sqrtPriceX96: bigint
   ) => {
     try {
       await writeContract({
@@ -147,7 +148,7 @@ export function usePools() {
             fee,
             tickLower,
             tickUpper,
-            sqrtPriceX96: BigInt(1441840186846502440478224405239589), // 新创建池子时不传当前价格，传 0
+            sqrtPriceX96,
           },
         ],
         // 设置 gas limit，避免超过区块限制

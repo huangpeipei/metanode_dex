@@ -45,13 +45,15 @@ export default function PoolsPage() {
     fee: number;
     tickLower: number;
     tickUpper: number;
+    sqrtPriceX96: bigint;
   }) => {
-    await createPool(
+    await createAndInitializePool(
       params.token0 as `0x${string}`,
       params.token1 as `0x${string}`,
+      params.fee,
       params.tickLower,
       params.tickUpper,
-      params.fee
+      params.sqrtPriceX96
     );
   };
 

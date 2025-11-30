@@ -118,3 +118,35 @@ export function getCurrentPriceInfo(sqrtPriceX96: string | bigint) {
     formatted: formatCurrentPrice(sqrtPriceX96),
   };
 }
+
+/**
+ * 从 tick 计算 sqrtPriceX96
+ * 公式: sqrtPriceX96 = sqrt(1.0001^tick) * 2^96
+ * @param tick - Uniswap V3 tick 值
+ * @returns sqrtPriceX96 (BigInt)
+ */
+export function tickToSqrtPriceX96(tick: number): bigint {
+  if (tick === 0) {
+    // 当 tick = 0 时，price = 1，sqrtPrice = 1，sqrtPriceX96 = 2^96
+    return Q96;
+  }
+
+  // price = 1.0001^tick
+  // sqrtPrice = sqrt(1.0001^tick) = 1.0001^(tick/2)
+  // sqrtPriceX96 = sqrtPrice * 2^96 = 1.0001^(tick/2) * 2^96
+
+  // 使用对数计算避免精度问题
+  // sqrtPrice = e^(tick/2 * ln(1.0001))
+  const lnBase = Math.log(TICK_BASE);
+  const sqrtPrice = Math.exp((tick / 2) * lnBase);
+
+  // 转换为 BigInt，注意精度处理
+  // sqrtPriceX96 = sqrtPrice * 2^96
+  // 使用高精度计算
+  const sqrtPriceX96Float = sqrtPrice * Number(Q96);
+  
+  // 转换为 BigInt（注意：这里会有精度损失，但对于大多数情况足够）
+  // 更精确的方法需要使用 BigInt 运算，但 JavaScript 的 Math 函数限制了我们
+  // 这里使用近似值
+  return BigInt(Math.floor(sqrtPriceX96Float));
+}
