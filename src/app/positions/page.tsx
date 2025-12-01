@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Header } from "@/src/components/Header";
 import { useAccount } from "wagmi";
+import { AddPositionModal } from "@/src/components/AddPositionModal";
+import { usePools } from "@/src/hooks/usePools";
 
 interface Position {
   id: string;
@@ -15,6 +18,17 @@ interface Position {
 
 export default function PositionsPage() {
   const { address, isConnected } = useAccount();
+  const [isAddPositionModalOpen, setIsAddPositionModalOpen] = useState(false);
+
+  const {
+    pairs,
+    pools,
+    isLoadingPairs,
+    isLoadingPools,
+    isPending,
+    isConfirming,
+    writeError,
+  } = usePools();
 
   // 示例数据
   const positions: Position[] = isConnected
@@ -50,11 +64,19 @@ export default function PositionsPage() {
 
         <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Page Header */}
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold mb-2">
-              <span className="gradient-text">我的头寸</span>
-            </h1>
-            <p className="text-gray-400">查看和管理您的流动性头寸</p>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
+            <div>
+              <h1 className="text-4xl font-bold mb-2">
+                <span className="gradient-text">我的头寸</span>
+              </h1>
+              <p className="text-gray-400">查看和管理您的流动性头寸</p>
+            </div>
+            <button
+              onClick={() => setIsAddPositionModalOpen(true)}
+              className="mt-4 md:mt-0 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold transition-all transform hover:scale-[1.02] shadow-lg shadow-indigo-500/50"
+            >
+              添加头寸
+            </button>
           </div>
 
           {!isConnected ? (
@@ -104,9 +126,6 @@ export default function PositionsPage() {
                 暂无头寸
               </h3>
               <p className="text-gray-400 mb-6">您还没有添加任何流动性头寸</p>
-              <button className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold transition-all">
-                添加流动性
-              </button>
             </div>
           ) : (
             /* Positions List */
@@ -219,17 +238,37 @@ export default function PositionsPage() {
 
                     {/* Action Buttons */}
                     <div className="flex space-x-2">
-                      <button className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium transition-colors">
-                        管理
+                      <button className="flex-1 py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium transition-colors border border-red-500/20">
+                        销毁头寸
                       </button>
-                      <button className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium transition-colors">
-                        领取
+                      <button className="flex-1 py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 font-medium transition-colors border border-green-500/20">
+                        提取手续费
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
             </>
+          )}
+
+          {/* 添加头寸模态框 */}
+          {isConnected && address && (
+            <AddPositionModal
+              isOpen={isAddPositionModalOpen}
+              onClose={() => setIsAddPositionModalOpen(false)}
+              onAddPosition={async (params) => {
+                // TODO: 实现添加头寸的逻辑
+                console.log("添加头寸参数:", params);
+              }}
+              pairs={Array.isArray(pairs) ? pairs : []}
+              pools={Array.isArray(pools) ? pools : []}
+              isLoadingPairs={isLoadingPairs}
+              isLoadingPools={isLoadingPools}
+              isPending={isPending}
+              isConfirming={isConfirming}
+              error={writeError}
+              userAddress={address}
+            />
           )}
         </main>
       </div>
