@@ -9,6 +9,11 @@ import { PoolManagerAbi, PositionManagerAbi, SwapRouterAbi } from "./stakeAbi";
 export const POOL_MANAGER_ADDRESS = (process.env
   .NEXT_PUBLIC_POOL_MANAGER_ADDRESS ||
   "0xddC12b3F9F7C91C79DA7433D8d212FB78d609f7B") as Address;
+
+export const POSITION_MANAGER_ADDRESS = (process.env
+  .NEXT_PUBLIC_POSITION_MANAGER_ADDRESS ||
+  "0x0000000000000000000000000000000000000000") as Address;
+
 console.log(
   "POOL_MANAGER_ADDRESS",
   process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS,

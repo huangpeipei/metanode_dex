@@ -256,18 +256,15 @@ export default function PositionsPage() {
             <AddPositionModal
               isOpen={isAddPositionModalOpen}
               onClose={() => setIsAddPositionModalOpen(false)}
-              onAddPosition={async (params) => {
-                // TODO: 实现添加头寸的逻辑
-                console.log("添加头寸参数:", params);
-              }}
               pairs={Array.isArray(pairs) ? pairs : []}
               pools={Array.isArray(pools) ? pools : []}
               isLoadingPairs={isLoadingPairs}
               isLoadingPools={isLoadingPools}
-              isPending={isPending}
-              isConfirming={isConfirming}
-              error={writeError}
               userAddress={address}
+              onSuccess={() => {
+                // 可以在这里刷新头寸列表
+                console.log("头寸添加成功，可以刷新列表");
+              }}
             />
           )}
         </main>

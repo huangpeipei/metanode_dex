@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Address } from "viem";
 import {
   isValidAddress,
   formatPairData,
   formatPoolData,
+  PositionManagerAbi,
+  POSITION_MANAGER_ADDRESS,
 } from "@/src/utils/contractHelpers";
 import { formatPriceRange, formatCurrentPrice } from "@/src/utils/priceUtils";
+import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 
 interface Pair {
   token0: Address;
@@ -30,37 +33,23 @@ interface Pool {
 interface AddPositionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddPosition: (params: {
-    token0: Address;
-    token1: Address;
-    index: number;
-    amount0Desired: bigint;
-    amount1Desired: bigint;
-    recipient: Address;
-    deadline: bigint;
-  }) => Promise<void>;
   pairs: any[];
   pools: any[];
   isLoadingPairs: boolean;
   isLoadingPools: boolean;
-  isPending: boolean;
-  isConfirming: boolean;
-  error: Error | null;
   userAddress?: Address;
+  onSuccess?: () => void;
 }
 
 export function AddPositionModal({
   isOpen,
   onClose,
-  onAddPosition,
   pairs,
   pools,
   isLoadingPairs,
   isLoadingPools,
-  isPending,
-  isConfirming,
-  error,
   userAddress,
+  onSuccess,
 }: AddPositionModalProps) {
   const [selectedPair, setSelectedPair] = useState<Pair | null>(null);
   const [selectedPool, setSelectedPool] = useState<Pool | null>(null);
@@ -68,6 +57,24 @@ export function AddPositionModal({
   const [amount1, setAmount1] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string>("");
+
+  // 使用 ref 跟踪是否在弹窗打开期间提交了交易
+  const hasSubmittedRef = useRef(false);
+  const processedConfirmationRef = useRef<string | undefined>(undefined);
+
+  // 写入合约
+  const {
+    writeContract,
+    data: hash,
+    isPending,
+    error: writeError,
+  } = useWriteContract();
+
+  // 等待交易确认
+  const { isLoading: isConfirming, isSuccess: isConfirmed } =
+    useWaitForTransactionReceipt({
+      hash,
+    });
 
   // 格式化交易对数据
   const formattedPairs = useMemo(() => {
@@ -80,6 +87,7 @@ export function AddPositionModal({
   // 根据选择的交易对过滤池子
   const filteredPools = useMemo(() => {
     if (!selectedPair || !pools || !Array.isArray(pools)) return [];
+
     return pools.filter((pool): pool is Pool => {
       if (!pool) return false;
       const token0Match =
@@ -101,8 +109,47 @@ export function AddPositionModal({
       setAmount1("");
       setErrors({});
       setSubmitError("");
+      hasSubmittedRef.current = false;
+      processedConfirmationRef.current = undefined;
     }
   }, [isOpen]);
+
+  // 交易确认成功后关闭弹窗并重置表单
+  useEffect(() => {
+    if (
+      isOpen &&
+      isConfirmed &&
+      hash &&
+      hasSubmittedRef.current &&
+      processedConfirmationRef.current !== hash
+    ) {
+      // 标记已处理，避免重复触发
+      processedConfirmationRef.current = hash;
+
+      // 延迟关闭，让用户看到成功信息
+      const timer = setTimeout(() => {
+        setSelectedPair(null);
+        setSelectedPool(null);
+        setAmount0("");
+        setAmount1("");
+        setErrors({});
+        setSubmitError("");
+        hasSubmittedRef.current = false;
+        onSuccess?.();
+        onClose();
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, isConfirmed, hash, onClose, onSuccess]);
+
+  // 当错误状态更新时显示错误信息
+  useEffect(() => {
+    if (writeError) {
+      const errorMessage =
+        writeError.message || "添加头寸失败，请检查参数并重试";
+      setSubmitError(errorMessage);
+    }
+  }, [writeError]);
 
   // 当选择交易对变化时，重置池子和数量
   useEffect(() => {
@@ -120,14 +167,6 @@ export function AddPositionModal({
       setAmount1("");
     }
   }, [selectedPool]);
-
-  // 当错误状态更新时显示错误信息
-  useEffect(() => {
-    if (error) {
-      const errorMessage = error.message || "添加头寸失败，请检查参数并重试";
-      setSubmitError(errorMessage);
-    }
-  }, [error]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -158,16 +197,18 @@ export function AddPositionModal({
 
     if (!validate() || !selectedPair || !selectedPool) return;
 
+    if (!userAddress) {
+      setSubmitError("请先连接钱包");
+      return;
+    }
+
+    // 标记已提交交易
+    hasSubmittedRef.current = true;
+    processedConfirmationRef.current = undefined;
+
     try {
-      // 计算 deadline（当前时间 + 20 分钟）
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
-
-      if (!userAddress) {
-        setSubmitError("请先连接钱包");
-        return;
-      }
-
-      // 将代币数量转换为 wei（假设 18 位小数，实际应该从代币合约读取）
+      // 将代币数量转换为 BigInt（假设 18 位小数，实际应该从代币合约读取）
+      // 注意：amount0Desired 和 amount1Desired 必须是 uint256 (BigInt) 类型
       const amount0Wei = amount0
         ? BigInt(Math.floor(parseFloat(amount0) * 1e18))
         : BigInt(0);
@@ -175,20 +216,41 @@ export function AddPositionModal({
         ? BigInt(Math.floor(parseFloat(amount1) * 1e18))
         : BigInt(0);
 
-      await onAddPosition({
-        token0: selectedPool.token0,
-        token1: selectedPool.token1,
-        index: selectedPool.index,
-        amount0Desired: amount0Wei,
-        amount1Desired: amount1Wei,
-        recipient: userAddress,
-        deadline,
+      // 计算 deadline（当前时间 + 20 分钟）
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+      console.log(
+        "mint",
+        selectedPool,
+        amount0Wei,
+        amount1Wei,
+        userAddress,
+        deadline
+      );
+      // 调用 mint 函数
+      await writeContract({
+        address: POSITION_MANAGER_ADDRESS,
+        abi: PositionManagerAbi,
+        functionName: "mint",
+        args: [
+          {
+            token0: selectedPool.token0,
+            token1: selectedPool.token1,
+            index: selectedPool.index, // uint32
+            amount0Desired: amount0Wei, // uint256 (BigInt)
+            amount1Desired: amount1Wei, // uint256 (BigInt)
+            recipient: userAddress,
+            deadline, // uint256 (BigInt)
+          },
+        ],
+        gas: BigInt(500000), // 设置 gas limit
       });
     } catch (error) {
       console.error("添加头寸失败:", error);
       const errorMessage =
         error instanceof Error ? error.message : "添加头寸失败，请重试";
       setSubmitError(errorMessage);
+      // 失败时重置提交状态
+      hasSubmittedRef.current = false;
     }
   };
 
@@ -323,7 +385,6 @@ export function AddPositionModal({
                     const value = e.target.value;
                     if (value) {
                       const [poolAddress, index] = value.split("-");
-                      console.log("p.poolAddress.toLowerCase()", filteredPools);
                       const pool = filteredPools.find(
                         (p) =>
                           p.poolAddress.toLowerCase() ===
@@ -412,6 +473,24 @@ export function AddPositionModal({
           {submitError && (
             <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
               <p className="text-sm text-red-400">{submitError}</p>
+            </div>
+          )}
+
+          {/* 成功信息显示 */}
+          {isConfirmed && hash && (
+            <div className="mt-4 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+              <p className="text-sm text-green-400 mb-2">✅ 头寸添加成功！</p>
+              <p className="text-xs text-gray-400">
+                交易哈希:{" "}
+                <a
+                  href={`https://sepolia.etherscan.io/tx/${hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-400 hover:underline"
+                >
+                  {`${hash.slice(0, 6)}...${hash.slice(-6)}`}
+                </a>
+              </p>
             </div>
           )}
 
