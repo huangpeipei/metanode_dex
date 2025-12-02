@@ -4,9 +4,18 @@ import { useState } from "react";
 import { Header } from "@/src/components/Header";
 import { AddPositionModal } from "@/src/components/AddPositionModal";
 import { usePositions } from "@/src/hooks/usePositions";
+import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import {
+  PositionManagerAbi,
+  POSITION_MANAGER_ADDRESS,
+} from "@/src/utils/contractHelpers";
 
 export default function PositionsPage() {
   const [isAddPositionModalOpen, setIsAddPositionModalOpen] = useState(false);
+  const [activePositionId, setActivePositionId] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<"burn" | "collect" | null>(
+    null
+  );
 
   const {
     address,
@@ -24,6 +33,62 @@ export default function PositionsPage() {
     refetchPositions,
     stats,
   } = usePositions();
+
+  // 合约写操作（用于 burn 和 collect）
+  const {
+    writeContract,
+    data: txHash,
+    isPending: isTxPending,
+    error: txError,
+  } = useWriteContract();
+
+  const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } =
+    useWaitForTransactionReceipt({
+      hash: txHash,
+    });
+
+  const handleBurnPosition = (position: any) => {
+    if (!address) return;
+    try {
+      const idStr = position.raw?.id ?? position.id;
+      const positionId = BigInt(idStr);
+      setActivePositionId(position.id);
+      setActiveAction("burn");
+      writeContract({
+        address: POSITION_MANAGER_ADDRESS,
+        abi: PositionManagerAbi,
+        functionName: "burn",
+        args: [positionId],
+        gas: BigInt(800000),
+      });
+    } catch (error) {
+      console.error("销毁头寸失败:", error);
+    }
+  };
+
+  const handleCollectFees = (position: any) => {
+    if (!address) return;
+    try {
+      const idStr = position.raw?.id ?? position.id;
+      const positionId = BigInt(idStr);
+      setActivePositionId(position.id);
+      setActiveAction("collect");
+      writeContract({
+        address: POSITION_MANAGER_ADDRESS,
+        abi: PositionManagerAbi,
+        functionName: "collect",
+        args: [positionId, address],
+        gas: BigInt(500000),
+      });
+    } catch (error) {
+      console.error("提取手续费失败:", error);
+    }
+  };
+
+  // 交易确认后刷新头寸列表
+  if (isTxConfirmed && txHash) {
+    refetchPositions();
+  }
 
   return (
     <div className="min-h-screen relative">
@@ -269,11 +334,43 @@ export default function PositionsPage() {
 
                     {/* Action Buttons */}
                     <div className="flex space-x-2">
-                      <button className="flex-1 py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium transition-colors border border-red-500/20">
-                        销毁头寸
+                      <button
+                        onClick={() => handleBurnPosition(position)}
+                        disabled={
+                          isTxPending ||
+                          isTxConfirming ||
+                          (activePositionId === position.id &&
+                            activeAction === "collect")
+                        }
+                        className="flex-1 py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium transition-colors border border-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {activePositionId === position.id &&
+                        activeAction === "burn"
+                          ? isTxConfirming
+                            ? "销毁确认中..."
+                            : isTxPending
+                            ? "销毁提交中..."
+                            : "销毁头寸"
+                          : "销毁头寸"}
                       </button>
-                      <button className="flex-1 py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 font-medium transition-colors border border-green-500/20">
-                        提取手续费
+                      <button
+                        onClick={() => handleCollectFees(position)}
+                        disabled={
+                          isTxPending ||
+                          isTxConfirming ||
+                          (activePositionId === position.id &&
+                            activeAction === "burn")
+                        }
+                        className="flex-1 py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 font-medium transition-colors border border-green-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {activePositionId === position.id &&
+                        activeAction === "collect"
+                          ? isTxConfirming
+                            ? "提现确认中..."
+                            : isTxPending
+                            ? "提现提交中..."
+                            : "提取手续费"
+                          : "提取手续费"}
                       </button>
                     </div>
                   </div>
