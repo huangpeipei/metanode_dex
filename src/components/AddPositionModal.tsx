@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Address } from "viem";
 import {
   isValidAddress,
@@ -8,9 +8,14 @@ import {
   formatPoolData,
   PositionManagerAbi,
   POSITION_MANAGER_ADDRESS,
+  ERC20Abi,
 } from "@/src/utils/contractHelpers";
 import { formatPriceRange, formatCurrentPrice } from "@/src/utils/priceUtils";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import {
+  useWriteContract,
+  useWaitForTransactionReceipt,
+  useReadContract,
+} from "wagmi";
 
 interface Pair {
   token0: Address;
@@ -57,12 +62,15 @@ export function AddPositionModal({
   const [amount1, setAmount1] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string>("");
+  const [approvalStep, setApprovalStep] = useState<
+    "idle" | "approving" | "approved" | "minting"
+  >("idle");
 
   // 使用 ref 跟踪是否在弹窗打开期间提交了交易
   const hasSubmittedRef = useRef(false);
   const processedConfirmationRef = useRef<string | undefined>(undefined);
 
-  // 写入合约
+  // 写入合约（用于 approve 和 mint）
   const {
     writeContract,
     data: hash,
@@ -75,6 +83,55 @@ export function AddPositionModal({
     useWaitForTransactionReceipt({
       hash,
     });
+
+  // 计算需要授权的代币数量（BigInt）
+  const amount0Wei = useMemo(() => {
+    if (!amount0 || isNaN(Number(amount0)) || Number(amount0) <= 0)
+      return BigInt(0);
+    return BigInt(Math.floor(parseFloat(amount0) * 1e18));
+  }, [amount0]);
+
+  const amount1Wei = useMemo(() => {
+    if (!amount1 || isNaN(Number(amount1)) || Number(amount1) <= 0)
+      return BigInt(0);
+    return BigInt(Math.floor(parseFloat(amount1) * 1e18));
+  }, [amount1]);
+
+  // 检查 token0 的授权额度
+  const { data: allowance0, refetch: refetchAllowance0 } = useReadContract({
+    address: selectedPool?.token0,
+    abi: ERC20Abi,
+    functionName: "allowance",
+    args:
+      userAddress && selectedPool?.token0
+        ? [userAddress, POSITION_MANAGER_ADDRESS]
+        : undefined,
+    query: {
+      enabled:
+        !!userAddress &&
+        !!selectedPool?.token0 &&
+        amount0Wei > BigInt(0) &&
+        approvalStep !== "approved",
+    },
+  });
+
+  // 检查 token1 的授权额度
+  const { data: allowance1, refetch: refetchAllowance1 } = useReadContract({
+    address: selectedPool?.token1,
+    abi: ERC20Abi,
+    functionName: "allowance",
+    args:
+      userAddress && selectedPool?.token1
+        ? [userAddress, POSITION_MANAGER_ADDRESS]
+        : undefined,
+    query: {
+      enabled:
+        !!userAddress &&
+        !!selectedPool?.token1 &&
+        amount1Wei > BigInt(0) &&
+        approvalStep !== "approved",
+    },
+  });
 
   // 格式化交易对数据
   const formattedPairs = useMemo(() => {
@@ -109,17 +166,43 @@ export function AddPositionModal({
       setAmount1("");
       setErrors({});
       setSubmitError("");
+      setApprovalStep("idle");
       hasSubmittedRef.current = false;
       processedConfirmationRef.current = undefined;
     }
   }, [isOpen]);
 
-  // 交易确认成功后关闭弹窗并重置表单
+  // 处理 approve 交易确认
   useEffect(() => {
     if (
       isOpen &&
       isConfirmed &&
       hash &&
+      approvalStep === "approving" &&
+      hasSubmittedRef.current
+    ) {
+      // Approve 交易确认成功，刷新授权额度并继续 mint
+      refetchAllowance0();
+      refetchAllowance1();
+      setApprovalStep("approved");
+      // 继续执行 mint（在 handleSubmit 中会检查 approvalStep）
+    }
+  }, [
+    isOpen,
+    isConfirmed,
+    hash,
+    approvalStep,
+    refetchAllowance0,
+    refetchAllowance1,
+  ]);
+
+  // 处理 mint 交易确认
+  useEffect(() => {
+    if (
+      isOpen &&
+      isConfirmed &&
+      hash &&
+      approvalStep === "minting" &&
       hasSubmittedRef.current &&
       processedConfirmationRef.current !== hash
     ) {
@@ -134,13 +217,14 @@ export function AddPositionModal({
         setAmount1("");
         setErrors({});
         setSubmitError("");
+        setApprovalStep("idle");
         hasSubmittedRef.current = false;
         onSuccess?.();
         onClose();
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, isConfirmed, hash, onClose, onSuccess]);
+  }, [isOpen, isConfirmed, hash, approvalStep, onClose, onSuccess]);
 
   // 当错误状态更新时显示错误信息
   useEffect(() => {
@@ -191,6 +275,47 @@ export function AddPositionModal({
     return Object.keys(newErrors).length === 0;
   };
 
+  // 执行 approve 操作
+  const handleApprove = async (tokenAddress: Address, amount: bigint) => {
+    try {
+      await writeContract({
+        address: tokenAddress,
+        abi: ERC20Abi,
+        functionName: "approve",
+        args: [POSITION_MANAGER_ADDRESS, amount],
+        gas: BigInt(100000),
+      });
+    } catch (error) {
+      console.error("授权失败:", error);
+      throw error;
+    }
+  };
+
+  // 执行 mint 操作
+  const handleMint = useCallback(async () => {
+    if (!selectedPool || !userAddress) return;
+
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+
+    await writeContract({
+      address: POSITION_MANAGER_ADDRESS,
+      abi: PositionManagerAbi,
+      functionName: "mint",
+      args: [
+        {
+          token0: selectedPool.token0,
+          token1: selectedPool.token1,
+          index: selectedPool.index,
+          amount0Desired: amount0Wei,
+          amount1Desired: amount1Wei,
+          recipient: userAddress,
+          deadline,
+        },
+      ],
+      gas: BigInt(16777216),
+    });
+  }, [selectedPool, userAddress, amount0Wei, amount1Wei, writeContract]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError("");
@@ -207,52 +332,87 @@ export function AddPositionModal({
     processedConfirmationRef.current = undefined;
 
     try {
-      // 将代币数量转换为 BigInt（假设 18 位小数，实际应该从代币合约读取）
-      // 注意：amount0Desired 和 amount1Desired 必须是 uint256 (BigInt) 类型
-      const amount0Wei = amount0
-        ? BigInt(Math.floor(parseFloat(amount0) * 1e18))
-        : BigInt(0);
-      const amount1Wei = amount1
-        ? BigInt(Math.floor(parseFloat(amount1) * 1e18))
-        : BigInt(0);
+      // 步骤 1: 检查并执行 token0 授权
+      if (amount0Wei > BigInt(0)) {
+        const currentAllowance0 = (allowance0 as bigint) || BigInt(0);
+        if (currentAllowance0 < amount0Wei) {
+          setApprovalStep("approving");
+          await handleApprove(selectedPool.token0, amount0Wei);
+          // 等待 approve 交易确认（通过 useEffect 处理）
+          return;
+        }
+      }
 
-      // 计算 deadline（当前时间 + 20 分钟）
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
-      console.log(
-        "mint",
-        selectedPool,
-        amount0Wei,
-        amount1Wei,
-        userAddress,
-        deadline
-      );
-      // 调用 mint 函数
-      await writeContract({
-        address: POSITION_MANAGER_ADDRESS,
-        abi: PositionManagerAbi,
-        functionName: "mint",
-        args: [
-          {
-            token0: selectedPool.token0,
-            token1: selectedPool.token1,
-            index: selectedPool.index, // uint32
-            amount0Desired: amount0Wei, // uint256 (BigInt)
-            amount1Desired: amount1Wei, // uint256 (BigInt)
-            recipient: userAddress,
-            deadline, // uint256 (BigInt)
-          },
-        ],
-        gas: BigInt(500000), // 设置 gas limit
-      });
+      // 步骤 2: 检查并执行 token1 授权
+      if (amount1Wei > BigInt(0)) {
+        const currentAllowance1 = (allowance1 as bigint) || BigInt(0);
+        if (currentAllowance1 < amount1Wei) {
+          setApprovalStep("approving");
+          await handleApprove(selectedPool.token1, amount1Wei);
+          // 等待 approve 交易确认（通过 useEffect 处理）
+          return;
+        }
+      }
+
+      // 步骤 3: 授权完成，执行 mint
+      // 如果 approvalStep 是 "approved"，说明刚完成授权，继续 mint
+      if (approvalStep === "approved" || approvalStep === "idle") {
+        setApprovalStep("minting");
+        await handleMint();
+      }
     } catch (error) {
       console.error("添加头寸失败:", error);
       const errorMessage =
         error instanceof Error ? error.message : "添加头寸失败，请重试";
       setSubmitError(errorMessage);
-      // 失败时重置提交状态
+      // 失败时重置状态
       hasSubmittedRef.current = false;
+      setApprovalStep("idle");
     }
   };
+
+  // 当授权完成时，自动继续执行 mint
+  useEffect(() => {
+    if (
+      approvalStep === "approved" &&
+      hasSubmittedRef.current &&
+      selectedPool &&
+      userAddress
+    ) {
+      // 检查授权是否足够
+      const allowance0Sufficient =
+        amount0Wei === BigInt(0) ||
+        ((allowance0 as bigint) || BigInt(0)) >= amount0Wei;
+      const allowance1Sufficient =
+        amount1Wei === BigInt(0) ||
+        ((allowance1 as bigint) || BigInt(0)) >= amount1Wei;
+
+      if (allowance0Sufficient && allowance1Sufficient) {
+        // 授权足够，执行 mint
+        handleMint()
+          .then(() => {
+            setApprovalStep("minting");
+          })
+          .catch((error) => {
+            console.error("执行 mint 失败:", error);
+            setSubmitError(
+              error instanceof Error ? error.message : "执行 mint 失败"
+            );
+            hasSubmittedRef.current = false;
+            setApprovalStep("idle");
+          });
+      }
+    }
+  }, [
+    approvalStep,
+    allowance0,
+    allowance1,
+    amount0Wei,
+    amount1Wei,
+    selectedPool,
+    userAddress,
+    handleMint,
+  ]);
 
   const handleClose = () => {
     if (!isPending && !isConfirming) {
@@ -262,6 +422,7 @@ export function AddPositionModal({
       setAmount1("");
       setErrors({});
       setSubmitError("");
+      setApprovalStep("idle");
       onClose();
     }
   };
@@ -509,8 +670,20 @@ export function AddPositionModal({
               disabled={isPending || isConfirming}
               className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isPending
-                ? "等待授权..."
+              {approvalStep === "approving"
+                ? isPending
+                  ? "等待授权..."
+                  : isConfirming
+                  ? "确认授权中..."
+                  : "授权中..."
+                : approvalStep === "minting"
+                ? isPending
+                  ? "等待交易..."
+                  : isConfirming
+                  ? "确认中..."
+                  : "添加头寸中..."
+                : isPending
+                ? "处理中..."
                 : isConfirming
                 ? "确认中..."
                 : "添加头寸"}

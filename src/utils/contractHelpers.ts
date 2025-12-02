@@ -4,6 +4,7 @@
 
 import { Address } from "viem";
 import { PoolManagerAbi, PositionManagerAbi, SwapRouterAbi } from "./stakeAbi";
+import { ERC20Abi } from "./erc20Abi";
 
 // 合约地址常量（请根据实际部署地址修改）
 export const POOL_MANAGER_ADDRESS = (process.env
@@ -70,7 +71,7 @@ export function isValidAddress(address: string): boolean {
 /**
  * 合约 ABI 导出
  */
-export { PoolManagerAbi, PositionManagerAbi, SwapRouterAbi };
+export { PoolManagerAbi, PositionManagerAbi, SwapRouterAbi, ERC20Abi };
 
 /**
  * 价格计算工具导出

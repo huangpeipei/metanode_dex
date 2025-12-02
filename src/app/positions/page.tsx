@@ -2,25 +2,15 @@
 
 import { useState } from "react";
 import { Header } from "@/src/components/Header";
-import { useAccount } from "wagmi";
 import { AddPositionModal } from "@/src/components/AddPositionModal";
-import { usePools } from "@/src/hooks/usePools";
-
-interface Position {
-  id: string;
-  pair: string;
-  token1: { symbol: string; amount: string; value: string };
-  token2: { symbol: string; amount: string; value: string };
-  liquidity: string;
-  share: string;
-  unclaimedFees: string;
-}
+import { usePositions } from "@/src/hooks/usePositions";
 
 export default function PositionsPage() {
-  const { address, isConnected } = useAccount();
   const [isAddPositionModalOpen, setIsAddPositionModalOpen] = useState(false);
 
   const {
+    address,
+    isConnected,
     pairs,
     pools,
     isLoadingPairs,
@@ -28,31 +18,9 @@ export default function PositionsPage() {
     isPending,
     isConfirming,
     writeError,
-  } = usePools();
-
-  // 示例数据
-  const positions: Position[] = isConnected
-    ? [
-        {
-          id: "1",
-          pair: "ETH/USDT",
-          token1: { symbol: "ETH", amount: "2.5", value: "$6,250" },
-          token2: { symbol: "USDT", amount: "5,000", value: "$5,000" },
-          liquidity: "$11,250",
-          share: "0.089%",
-          unclaimedFees: "$12.45",
-        },
-        {
-          id: "2",
-          pair: "BTC/ETH",
-          token1: { symbol: "BTC", amount: "0.15", value: "$9,750" },
-          token2: { symbol: "ETH", amount: "3.2", value: "$8,000" },
-          liquidity: "$17,750",
-          share: "0.215%",
-          unclaimedFees: "$23.67",
-        },
-      ]
-    : [];
+    positions,
+    stats,
+  } = usePositions();
 
   return (
     <div className="min-h-screen relative">
@@ -135,14 +103,14 @@ export default function PositionsPage() {
                 <div className="glass rounded-xl p-6 border border-white/10">
                   <div className="text-sm text-gray-400 mb-2">总流动性价值</div>
                   <div className="text-3xl font-bold text-white mb-1">
-                    $29,000
+                    {stats.totalLiquidity}
                   </div>
                   <div className="text-xs text-green-400">+5.2%</div>
                 </div>
                 <div className="glass rounded-xl p-6 border border-white/10">
                   <div className="text-sm text-gray-400 mb-2">未领取费用</div>
                   <div className="text-3xl font-bold text-white mb-1">
-                    $36.12
+                    {stats.unclaimedFees}
                   </div>
                   <button className="text-xs text-indigo-400 hover:text-indigo-300 mt-2">
                     领取全部
@@ -151,7 +119,7 @@ export default function PositionsPage() {
                 <div className="glass rounded-xl p-6 border border-white/10">
                   <div className="text-sm text-gray-400 mb-2">活跃头寸</div>
                   <div className="text-3xl font-bold text-white mb-1">
-                    {positions.length}
+                    {stats.activePositions}
                   </div>
                   <div className="text-xs text-gray-400">个池子</div>
                 </div>

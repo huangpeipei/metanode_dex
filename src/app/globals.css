@@ -21,7 +21,7 @@
 *::after {
   margin: 0;
   box-sizing: border-box;
-}
+  }
 
 /* 只重置特定元素的 padding，而不是所有元素 */
 body,
