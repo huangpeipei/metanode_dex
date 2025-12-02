@@ -54,6 +54,30 @@ export function formatPairData(pair: any) {
 }
 
 /**
+ * 格式化头寸数据
+ */
+export function formatPositionData(position: any) {
+  if (!position) return null;
+  return {
+    id: position.id?.toString() || "0",
+    owner: position.owner as Address,
+    token0: position.token0 as Address,
+    token1: position.token1 as Address,
+    index: Number(position.index || 0),
+    fee: Number(position.fee || 0) / 10000, // 转换为百分比
+    liquidity: position.liquidity?.toString() || "0",
+    tickLower: Number(position.tickLower || 0),
+    tickUpper: Number(position.tickUpper || 0),
+    tokensOwed0: position.tokensOwed0?.toString() || "0",
+    tokensOwed1: position.tokensOwed1?.toString() || "0",
+    feeGrowthInside0LastX128:
+      position.feeGrowthInside0LastX128?.toString() || "0",
+    feeGrowthInside1LastX128:
+      position.feeGrowthInside1LastX128?.toString() || "0",
+  };
+}
+
+/**
  * 计算费用（从 uint24 转换为百分比）
  */
 export function formatFee(fee: bigint | number): string {

@@ -19,6 +19,9 @@ export default function PositionsPage() {
     isConfirming,
     writeError,
     positions,
+    isLoadingPositions,
+    positionsError,
+    refetchPositions,
     stats,
   } = usePositions();
 
@@ -71,6 +74,66 @@ export default function PositionsPage() {
               <p className="text-gray-400 mb-6">
                 连接钱包后即可查看您的流动性头寸
               </p>
+            </div>
+          ) : isLoadingPositions ? (
+            /* Loading State */
+            <div className="glass rounded-2xl p-12 border border-white/10 text-center">
+              <div className="w-20 h-20 rounded-full bg-white/5 mx-auto mb-6 flex items-center justify-center">
+                <svg
+                  className="w-10 h-10 text-indigo-400 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-2xl font-semibold text-white mb-2">
+                加载中...
+              </h3>
+              <p className="text-gray-400 mb-6">正在从链上获取您的头寸数据</p>
+            </div>
+          ) : positionsError ? (
+            /* Error State */
+            <div className="glass rounded-2xl p-12 border border-red-500/20 text-center">
+              <div className="w-20 h-20 rounded-full bg-red-500/10 mx-auto mb-6 flex items-center justify-center">
+                <svg
+                  className="w-10 h-10 text-red-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-2xl font-semibold text-white mb-2">
+                加载失败
+              </h3>
+              <p className="text-gray-400 mb-6">
+                {positionsError.message || "无法获取头寸数据，请稍后重试"}
+              </p>
+              <button
+                onClick={() => refetchPositions()}
+                className="px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors"
+              >
+                重试
+              </button>
             </div>
           ) : positions.length === 0 ? (
             /* No Positions State */
@@ -230,8 +293,8 @@ export default function PositionsPage() {
               isLoadingPools={isLoadingPools}
               userAddress={address}
               onSuccess={() => {
-                // 可以在这里刷新头寸列表
-                console.log("头寸添加成功，可以刷新列表");
+                // 刷新头寸列表
+                refetchPositions();
               }}
             />
           )}

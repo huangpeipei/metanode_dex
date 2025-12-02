@@ -144,7 +144,7 @@ export function tickToSqrtPriceX96(tick: number): bigint {
   // sqrtPriceX96 = sqrtPrice * 2^96
   // 使用高精度计算
   const sqrtPriceX96Float = sqrtPrice * Number(Q96);
-  
+
   // 转换为 BigInt（注意：这里会有精度损失，但对于大多数情况足够）
   // 更精确的方法需要使用 BigInt 运算，但 JavaScript 的 Math 函数限制了我们
   // 这里使用近似值
