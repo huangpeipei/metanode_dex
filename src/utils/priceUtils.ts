@@ -3,7 +3,7 @@
  */
 
 // Uniswap V3 的 tick 到价格的转换常数
-const Q96 = BigInt(2) ** BigInt(96);
+export const Q96 = BigInt(2) ** BigInt(96);
 const TICK_BASE = 1.0001;
 
 /**

@@ -15,6 +15,10 @@ export const POSITION_MANAGER_ADDRESS = (process.env
   .NEXT_PUBLIC_POSITION_MANAGER_ADDRESS ||
   "0x0000000000000000000000000000000000000000") as Address;
 
+export const SWAP_ROUTER_ADDRESS = (process.env
+  .NEXT_PUBLIC_SWAP_ROUTER_ADDRESS ||
+  "0x0000000000000000000000000000000000000000") as Address;
+
 console.log(
   "POOL_MANAGER_ADDRESS",
   process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS,
@@ -90,6 +94,16 @@ export function formatFee(fee: bigint | number): string {
  */
 export function isValidAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+/**
+ * 格式化地址显示（前6位...后4位）
+ */
+export function formatAddress(address: Address | string): string {
+  if (!address) return "--";
+  const addr = typeof address === "string" ? address : address;
+  if (addr.length < 10) return addr;
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
 /**
