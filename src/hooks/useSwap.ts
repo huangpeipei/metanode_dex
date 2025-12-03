@@ -58,27 +58,52 @@ export function useSwap() {
   }, [tokenIn, tokenOut, pools]);
 
   // 获取选中的池子信息（使用 useMemo 避免无限循环）
-  // 选择 indexPath 中第一个池子（费率最低的）作为显示用的池子
+  // 除了通过 index 过滤外，还需要同时校验 token0/token1，
+  // 因为在不同的代币对中，pools 中的 index 有可能重复
   const selectedPool = useMemo(() => {
-    if (indexPath.length > 0 && pools && pools.length > 0) {
-      const pool = pools.find((p) => p !== null && p.index === indexPath[0]);
-      return pool || null;
+    if (
+      indexPath.length === 0 ||
+      !pools ||
+      pools.length === 0 ||
+      !tokenIn ||
+      !tokenOut
+    ) {
+      return null;
     }
-    return null;
-  }, [indexPath, pools]);
+
+    const targetIndex = indexPath[0];
+    const tokenInLower = tokenIn.toLowerCase();
+    const tokenOutLower = tokenOut.toLowerCase();
+
+    const pool = pools.find((p) => {
+      if (!p) return false;
+      if (p.index !== targetIndex) return false;
+
+      const poolToken0 = p.token0.toLowerCase();
+      const poolToken1 = p.token1.toLowerCase();
+
+      // 代币对需要与当前选择的 tokenIn/tokenOut 匹配（忽略顺序）
+      const directMatch =
+        poolToken0 === tokenInLower && poolToken1 === tokenOutLower;
+      const reverseMatch =
+        poolToken0 === tokenOutLower && poolToken1 === tokenInLower;
+
+      return directMatch || reverseMatch;
+    });
+
+    return pool || null;
+  }, [indexPath, pools, tokenIn, tokenOut]);
 
   // 计算 sqrtPriceLimitX96
+  // 注意：zeroForOne 应该根据 tokenIn 和 tokenOut 的地址大小关系确定，而不是根据池子的 token0/token1
   const sqrtPriceLimitX96 = useMemo(() => {
     if (!selectedPool || !tokenIn || !tokenOut) {
       return BigInt(0);
     }
 
     try {
-      const zeroForOne = isZeroForOne(
-        tokenIn,
-        selectedPool.token0,
-        selectedPool.token1
-      );
+      // 根据合约逻辑：zeroForOne = tokenIn < tokenOut（按地址字典序比较）
+      const zeroForOne = isZeroForOne(tokenIn, tokenOut);
       return calculateSqrtPriceLimitX96(
         BigInt(selectedPool.sqrtPriceX96),
         slippagePercent,

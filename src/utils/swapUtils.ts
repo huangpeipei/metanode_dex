@@ -149,17 +149,14 @@ export function calculateSqrtPriceLimitX96(
 
 /**
  * 计算交易方向（zeroForOne）
+ * 根据合约源码：bool zeroForOne = params.tokenIn < params.tokenOut;
  * @param tokenIn - 输入代币地址
- * @param token0 - 池子的 token0 地址
- * @param token1 - 池子的 token1 地址
- * @returns true 表示 token0 -> token1，false 表示 token1 -> token0
+ * @param tokenOut - 输出代币地址
+ * @returns true 表示 tokenIn < tokenOut（按地址字典序），false 表示 tokenIn > tokenOut
  */
-export function isZeroForOne(
-  tokenIn: Address,
-  token0: Address,
-  token1: Address
-): boolean {
-  return tokenIn.toLowerCase() === token0.toLowerCase();
+export function isZeroForOne(tokenIn: Address, tokenOut: Address): boolean {
+  // 根据合约逻辑：zeroForOne = tokenIn < tokenOut（按地址大小比较）
+  return tokenIn.toLowerCase() < tokenOut.toLowerCase();
 }
 
 /**
