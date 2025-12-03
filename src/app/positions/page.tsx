@@ -233,7 +233,6 @@ export default function PositionsPage() {
                   <div className="text-3xl font-bold text-white mb-1">
                     {stats.totalLiquidity}
                   </div>
-                  <div className="text-xs text-green-400">+5.2%</div>
                 </div>
                 <div className="glass rounded-xl p-6 border border-white/10">
                   <div className="text-sm text-gray-400 mb-2">未领取费用</div>
