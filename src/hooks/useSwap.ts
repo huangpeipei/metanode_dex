@@ -21,6 +21,7 @@ import {
   isZeroForOne,
   calculateAmountOutMinimum,
   calculateAmountInMaximum,
+  validateSqrtPriceLimitX96,
 } from "@/src/utils/swapUtils";
 
 /**
@@ -45,6 +46,44 @@ export function useSwap() {
   const hasSubmittedRef = useRef(false);
   const processedApprovalRef = useRef<string | undefined>(undefined);
 
+  // 防抖后的输入值（用于合约调用，避免频繁触发）
+  const [debouncedAmountIn, setDebouncedAmountIn] = useState("");
+  const [debouncedAmountOut, setDebouncedAmountOut] = useState("");
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 防抖逻辑：用户停止输入 500ms 后才更新防抖值
+  // 如果输入为空，立即清空防抖值
+  useEffect(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // 如果输入为空，立即清空防抖值
+    if (inputMode === "in" && (!amountIn || amountIn.trim() === "")) {
+      setDebouncedAmountIn("");
+      return;
+    }
+    if (inputMode === "out" && (!amountOut || amountOut.trim() === "")) {
+      setDebouncedAmountOut("");
+      return;
+    }
+
+    // 否则等待 500ms 后再更新防抖值
+    debounceTimerRef.current = setTimeout(() => {
+      if (inputMode === "in") {
+        setDebouncedAmountIn(amountIn);
+      } else {
+        setDebouncedAmountOut(amountOut);
+      }
+    }, 500); // 500ms 防抖延迟
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [amountIn, amountOut, inputMode]);
+
   // 计算最优路径
   const indexPath = useMemo(() => {
     if (!tokenIn || !tokenOut || !pools || pools.length === 0) {
@@ -54,8 +93,9 @@ export function useSwap() {
     const validPools = pools.filter(
       (p): p is NonNullable<typeof p> => p !== null
     );
-    return findOptimalPath(validPools, tokenIn, tokenOut);
-  }, [tokenIn, tokenOut, pools]);
+    // 传入 slippagePercent，用于计算 sqrtPriceLimitX96 并检查是否在限价范围内
+    return findOptimalPath(validPools, tokenIn, tokenOut, slippagePercent);
+  }, [tokenIn, tokenOut, pools, slippagePercent]);
 
   // 获取选中的池子信息（使用 useMemo 避免无限循环）
   // 除了通过 index 过滤外，还需要同时校验 token0/token1，
@@ -125,31 +165,49 @@ export function useSwap() {
     address: SWAP_ROUTER_ADDRESS,
     abi: SwapRouterAbi,
     functionName: "quoteExactInput",
-    args:
-      tokenIn &&
-      tokenOut &&
-      indexPath.length > 0 &&
-      amountIn &&
-      parseFloat(amountIn) > 0 &&
-      sqrtPriceLimitX96 !== BigInt(0)
-        ? [
-            {
-              tokenIn,
-              tokenOut,
-              indexPath,
-              amountIn: parseUnits(amountIn, 18), // 假设 18 位小数
-              sqrtPriceLimitX96,
-            },
-          ]
-        : undefined,
+    args: (() => {
+      // 严格检查所有参数（使用防抖后的值）
+      if (
+        !tokenIn ||
+        !tokenOut ||
+        !indexPath ||
+        indexPath.length === 0 ||
+        !debouncedAmountIn ||
+        isNaN(parseFloat(debouncedAmountIn)) ||
+        parseFloat(debouncedAmountIn) <= 0 ||
+        !sqrtPriceLimitX96 ||
+        sqrtPriceLimitX96 === BigInt(0)
+      ) {
+        return undefined;
+      }
+
+      try {
+        const amountInWei = parseUnits(debouncedAmountIn, 18);
+        return [
+          {
+            tokenIn,
+            tokenOut,
+            indexPath,
+            amountIn: amountInWei,
+            sqrtPriceLimitX96,
+          },
+        ];
+      } catch (error) {
+        console.error("解析 amountIn 失败:", error);
+        return undefined;
+      }
+    })(),
     query: {
       enabled:
         !!tokenIn &&
         !!tokenOut &&
+        !!indexPath &&
         indexPath.length > 0 &&
-        !!amountIn &&
-        parseFloat(amountIn) > 0 &&
+        !!debouncedAmountIn &&
+        !isNaN(parseFloat(debouncedAmountIn)) &&
+        parseFloat(debouncedAmountIn) > 0 &&
         inputMode === "in" &&
+        !!sqrtPriceLimitX96 &&
         sqrtPriceLimitX96 !== BigInt(0) &&
         SWAP_ROUTER_ADDRESS !== "0x0000000000000000000000000000000000000000",
     },
@@ -157,14 +215,6 @@ export function useSwap() {
   // 调试信息
   if (quoteInputError) {
     console.log("quoteInputError", quoteInputError);
-    console.log("调用参数:", {
-      tokenIn,
-      tokenOut,
-      indexPath,
-      amountIn,
-      sqrtPriceLimitX96: sqrtPriceLimitX96.toString(),
-      selectedPool,
-    });
   }
 
   // 从 simulateContract 的结果中提取 amountOut
@@ -180,36 +230,80 @@ export function useSwap() {
     address: SWAP_ROUTER_ADDRESS,
     abi: SwapRouterAbi,
     functionName: "quoteExactOutput",
-    args:
-      tokenIn &&
-      tokenOut &&
-      indexPath.length > 0 &&
-      amountOut &&
-      parseFloat(amountOut) > 0 &&
-      sqrtPriceLimitX96 !== BigInt(0)
-        ? [
-            {
-              tokenIn,
-              tokenOut,
-              indexPath,
-              amount: parseUnits(amountOut, 18), // 假设 18 位小数
-              sqrtPriceLimitX96,
-            },
-          ]
-        : undefined,
+    args: (() => {
+      // 严格检查所有参数（使用防抖后的值）
+      if (
+        !tokenIn ||
+        !tokenOut ||
+        !indexPath ||
+        indexPath.length === 0 ||
+        !debouncedAmountOut ||
+        debouncedAmountOut.trim() === "" ||
+        isNaN(parseFloat(debouncedAmountOut)) ||
+        parseFloat(debouncedAmountOut) <= 0 ||
+        !sqrtPriceLimitX96 ||
+        sqrtPriceLimitX96 === BigInt(0)
+      ) {
+        return undefined;
+      }
+
+      try {
+        const amountOutWei = parseUnits(debouncedAmountOut, 18);
+        if (!amountOutWei || amountOutWei === BigInt(0)) {
+          console.error("amountOutWei 无效:", amountOutWei);
+          return undefined;
+        }
+
+        const params = {
+          tokenIn,
+          tokenOut,
+          indexPath,
+          amountOut: amountOutWei, // 注意：参数名称必须是 amountOut，与 ABI 一致
+          sqrtPriceLimitX96,
+        };
+
+        // 验证所有参数都不是 undefined
+        if (
+          !params.tokenIn ||
+          !params.tokenOut ||
+          !params.indexPath ||
+          params.indexPath.length === 0 ||
+          !params.amountOut ||
+          params.amountOut === BigInt(0) ||
+          !params.sqrtPriceLimitX96 ||
+          params.sqrtPriceLimitX96 === BigInt(0)
+        ) {
+          console.error("参数验证失败:", params);
+          return undefined;
+        }
+
+        return [params];
+      } catch (error) {
+        console.error("解析 amountOut 失败:", error);
+        return undefined;
+      }
+    })(),
     query: {
       enabled:
         !!tokenIn &&
         !!tokenOut &&
+        !!indexPath &&
         indexPath.length > 0 &&
-        !!amountOut &&
-        parseFloat(amountOut) > 0 &&
+        !!debouncedAmountOut &&
+        !isNaN(parseFloat(debouncedAmountOut)) &&
+        parseFloat(debouncedAmountOut) > 0 &&
         inputMode === "out" &&
+        !!sqrtPriceLimitX96 &&
         sqrtPriceLimitX96 !== BigInt(0) &&
         SWAP_ROUTER_ADDRESS !== "0x0000000000000000000000000000000000000000",
     },
   });
 
+  console.log(
+    "quoteExactOutputSimulation",
+    quoteExactOutputSimulation,
+    quoteOutputError
+  );
   // 从 simulateContract 的结果中提取 amountIn
   const quoteExactOutputData = quoteExactOutputSimulation?.result;
 
@@ -279,6 +373,9 @@ export function useSwap() {
       hash,
     });
 
+  // 使用 ref 存储执行函数，避免在 useEffect 中使用未定义的函数
+  const executeSwapRef = useRef<(() => Promise<void>) | null>(null);
+
   // 处理授权交易确认
   useEffect(() => {
     if (
@@ -291,45 +388,55 @@ export function useSwap() {
       // 标记已处理，避免重复触发
       processedApprovalRef.current = hash;
 
-      // 授权交易确认成功，刷新授权额度并继续 swap
+      // 授权交易确认成功，刷新授权额度
       refetchTokenInAllowance();
       setApprovalStep("approved");
 
-      // 自动继续执行 swap（在 executeSwap 中会检查 approvalStep）
-      // 这里我们需要重新触发 swap，但由于 useEffect 的限制，我们在 executeSwap 中处理
+      // 自动继续执行 swap
+      // 使用 setTimeout 确保授权额度已刷新
+      setTimeout(async () => {
+        if (executeSwapRef.current) {
+          try {
+            setApprovalStep("swapping");
+            await executeSwapRef.current();
+          } catch (error) {
+            console.error("自动继续交易失败:", error);
+            setApprovalStep("idle");
+          }
+        }
+      }, 1000); // 等待 1 秒确保授权额度已刷新
     }
   }, [isConfirmed, hash, approvalStep, refetchTokenInAllowance]);
 
-  // 使用 ref 存储执行函数，避免在 useEffect 中使用未定义的函数
-  const executeSwapRef = useRef<(() => Promise<void>) | null>(null);
-
   // 处理 token 授权
-  const handleApprove = useCallback(async () => {
-    if (!tokenIn || !address || !amountIn) {
-      throw new Error("缺少必要参数");
-    }
+  const handleApprove = useCallback(
+    async (requiredAmount: bigint) => {
+      if (!tokenIn || !address) {
+        throw new Error("缺少必要参数");
+      }
 
-    const amountInWei = parseUnits(amountIn, 18);
-    const currentAllowance = (tokenInAllowance as bigint) || BigInt(0);
+      const currentAllowance = (tokenInAllowance as bigint) || BigInt(0);
 
-    if (currentAllowance >= amountInWei) {
-      return; // 已有足够授权
-    }
+      if (currentAllowance >= requiredAmount) {
+        return; // 已有足够授权
+      }
 
-    try {
-      setApprovalStep("approving");
-      await writeContract({
-        address: tokenIn,
-        abi: ERC20Abi,
-        functionName: "approve",
-        args: [SWAP_ROUTER_ADDRESS, amountInWei],
-      });
-    } catch (error) {
-      console.error("授权失败:", error);
-      setApprovalStep("idle");
-      throw error;
-    }
-  }, [tokenIn, address, amountIn, tokenInAllowance, writeContract]);
+      try {
+        setApprovalStep("approving");
+        await writeContract({
+          address: tokenIn,
+          abi: ERC20Abi,
+          functionName: "approve",
+          args: [SWAP_ROUTER_ADDRESS, requiredAmount],
+        });
+      } catch (error) {
+        console.error("授权失败:", error);
+        setApprovalStep("idle");
+        throw error;
+      }
+    },
+    [tokenIn, address, tokenInAllowance, writeContract]
+  );
 
   // 执行 exactInput 交易
   const executeExactInput = useCallback(async () => {
@@ -338,9 +445,24 @@ export function useSwap() {
       !tokenOut ||
       !address ||
       !amountIn ||
-      indexPath.length === 0
+      indexPath.length === 0 ||
+      !selectedPool
     ) {
       throw new Error("缺少必要参数");
+    }
+
+    // 验证 sqrtPriceLimitX96 是否符合限价逻辑
+    const zeroForOne = isZeroForOne(tokenIn, tokenOut);
+    const validation = validateSqrtPriceLimitX96(
+      BigInt(selectedPool.sqrtPriceX96),
+      sqrtPriceLimitX96,
+      selectedPool.tickLower,
+      selectedPool.tickUpper,
+      zeroForOne
+    );
+
+    if (!validation.isValid) {
+      throw new Error(`限价验证失败: ${validation.reason}`);
     }
 
     const amountInWei = parseUnits(amountIn, 18);
@@ -383,6 +505,7 @@ export function useSwap() {
     address,
     amountIn,
     indexPath,
+    selectedPool,
     quoteExactInputData,
     slippagePercent,
     sqrtPriceLimitX96,
@@ -396,9 +519,24 @@ export function useSwap() {
       !tokenOut ||
       !address ||
       !amountOut ||
-      indexPath.length === 0
+      indexPath.length === 0 ||
+      !selectedPool
     ) {
       throw new Error("缺少必要参数");
+    }
+
+    // 验证 sqrtPriceLimitX96 是否符合限价逻辑
+    const zeroForOne = isZeroForOne(tokenIn, tokenOut);
+    const validation = validateSqrtPriceLimitX96(
+      BigInt(selectedPool.sqrtPriceX96),
+      sqrtPriceLimitX96,
+      selectedPool.tickLower,
+      selectedPool.tickUpper,
+      zeroForOne
+    );
+
+    if (!validation.isValid) {
+      throw new Error(`限价验证失败: ${validation.reason}`);
     }
 
     const amountOutWei = parseUnits(amountOut, 18);
@@ -441,6 +579,7 @@ export function useSwap() {
     address,
     amountOut,
     indexPath,
+    selectedPool,
     quoteExactOutputData,
     slippagePercent,
     sqrtPriceLimitX96,
@@ -457,14 +596,38 @@ export function useSwap() {
     hasSubmittedRef.current = true;
     processedApprovalRef.current = undefined;
 
-    // 检查是否需要授权（只对 exactInput 需要授权，因为 exactOutput 是反向的）
-    if (inputMode === "in" && tokenIn) {
-      const amountInWei = parseUnits(amountIn, 18);
+    // 检查是否需要授权
+    // 无论是 exactInput 还是 exactOutput，都需要 tokenIn 的授权
+    if (tokenIn) {
+      let requiredAmount: bigint;
+
+      if (inputMode === "in") {
+        // exactInput: 需要授权 amountIn
+        requiredAmount = parseUnits(amountIn, 18);
+      } else {
+        // exactOutput: 需要授权预估的 amountIn（从 quoteExactOutputData 获取）
+        if (!quoteExactOutputData) {
+          throw new Error("无法获取预估的输入金额，请稍后再试");
+        }
+        requiredAmount = quoteExactOutputData as bigint;
+        // 添加一些缓冲（10%）以确保有足够的授权
+        requiredAmount = (requiredAmount * BigInt(110)) / BigInt(100);
+      }
+
       const currentAllowance = (tokenInAllowance as bigint) || BigInt(0);
 
-      if (currentAllowance < amountInWei) {
+      if (currentAllowance < requiredAmount) {
         // 需要授权，先执行授权
-        await handleApprove();
+        // 将执行函数存储到 ref 中，供授权确认后使用
+        executeSwapRef.current = async () => {
+          setApprovalStep("swapping");
+          if (inputMode === "in") {
+            await executeExactInput();
+          } else {
+            await executeExactOutput();
+          }
+        };
+        await handleApprove(requiredAmount);
         // 授权交易已提交，等待 useEffect 监听确认后自动执行 swap
         return;
       }
@@ -484,6 +647,7 @@ export function useSwap() {
     tokenIn,
     amountIn,
     tokenInAllowance,
+    quoteExactOutputData,
     handleApprove,
     executeExactInput,
     executeExactOutput,

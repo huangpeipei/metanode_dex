@@ -3,14 +3,15 @@
  */
 
 import { Address } from "viem";
-import { Q96 } from "./priceUtils";
+import { Q96, tickToSqrtPriceX96 } from "./priceUtils";
 
 /**
- * 根据费率选择最优池子路径（只考虑费率维度）
+ * 根据流动性选择最优池子路径（只考虑流动性维度）
  * @param pools - 所有池子列表
  * @param tokenIn - 输入代币地址
  * @param tokenOut - 输出代币地址
- * @returns 最优路径的 indexPath 数组
+ * @param slippagePercent - 滑点百分比（用于计算 sqrtPriceLimitX96）
+ * @returns 最优路径的 indexPath 数组（只返回流动性最大的池子的 index）
  */
 export function findOptimalPath(
   pools: Array<{
@@ -22,15 +23,21 @@ export function findOptimalPath(
     tick: number;
     tickLower: number;
     tickUpper: number;
+    sqrtPriceX96: string;
   }>,
   tokenIn: Address,
-  tokenOut: Address
+  tokenOut: Address,
+  slippagePercent: number = 0.5
 ): number[] {
   if (!pools || pools.length === 0) {
     return [];
   }
 
+  // 确定交易方向：zeroForOne = tokenIn < tokenOut（按地址字典序）
+  const zeroForOne = tokenIn.toLowerCase() < tokenOut.toLowerCase();
+
   // 过滤出匹配的池子（考虑 token0/token1 的顺序）
+  // 需要同时匹配 tokenIn 和 tokenOut 的地址
   const matchingPools = pools.filter((pool) => {
     const isToken0In = pool.token0.toLowerCase() === tokenIn.toLowerCase();
     const isToken1In = pool.token1.toLowerCase() === tokenIn.toLowerCase();
@@ -38,6 +45,7 @@ export function findOptimalPath(
     const isToken1Out = pool.token1.toLowerCase() === tokenOut.toLowerCase();
 
     // 匹配条件：tokenIn 和 tokenOut 都在池子中，且方向正确
+    // 即：(tokenIn = token0 && tokenOut = token1) 或 (tokenIn = token1 && tokenOut = token0)
     const tokenMatch =
       (isToken0In && isToken1Out) || (isToken1In && isToken0Out);
 
@@ -49,27 +57,70 @@ export function findOptimalPath(
     const liquidityStr = pool.liquidity?.toString() || "0";
     const hasLiquidity = BigInt(liquidityStr) > BigInt(0);
 
-    return tokenMatch && priceInRange && hasLiquidity;
+    if (!tokenMatch || !priceInRange || !hasLiquidity) {
+      return false;
+    }
+
+    // 计算当前池子的 sqrtPriceLimitX96（基于滑点）
+    try {
+      const currentSqrtPriceX96 = BigInt(pool.sqrtPriceX96 || "0");
+      if (currentSqrtPriceX96 === BigInt(0)) {
+        return false;
+      }
+
+      const sqrtPriceLimitX96 = calculateSqrtPriceLimitX96(
+        currentSqrtPriceX96,
+        slippagePercent,
+        zeroForOne
+      );
+
+      // 计算 tickLower 和 tickUpper 对应的 sqrtPriceX96
+      const sqrtPriceLowerX96 = tickToSqrtPriceX96(pool.tickLower);
+      const sqrtPriceUpperX96 = tickToSqrtPriceX96(pool.tickUpper);
+
+      // 检查 sqrtPriceLimitX96 是否在池子的价格范围内：
+      // - zeroForOne = true: 价格下降，sqrtPriceLimitX96 必须 >= sqrtPriceLowerX96（不能低于下限）
+      // - zeroForOne = false: 价格上升，sqrtPriceLimitX96 必须 <= sqrtPriceUpperX96（不能高于上限）
+      let priceLimitInRange = false;
+      if (zeroForOne) {
+        // token0 -> token1，价格下降
+        // sqrtPriceLimitX96 必须 >= sqrtPriceLowerX96（不能低于池子的最低价格）
+        priceLimitInRange = sqrtPriceLimitX96 >= sqrtPriceLowerX96;
+      } else {
+        // token1 -> token0，价格上升
+        // sqrtPriceLimitX96 必须 <= sqrtPriceUpperX96（不能高于池子的最高价格）
+        priceLimitInRange = sqrtPriceLimitX96 <= sqrtPriceUpperX96;
+      }
+
+      return priceLimitInRange;
+    } catch (error) {
+      console.error("计算价格限制失败:", error);
+      return false;
+    }
   });
 
   if (matchingPools.length === 0) {
     return [];
   }
 
-  // 按费率排序（费率越低越好），如果费率相同，按流动性排序（流动性越高越好）
+  // 按流动性降序排序（流动性越高越好）
   const sortedPools = matchingPools.sort((a, b) => {
-    if (a.fee !== b.fee) {
-      return a.fee - b.fee; // 费率升序
-    }
-    // 费率相同时，按流动性降序
     const liquidityA = BigInt(a.liquidity?.toString() || "0");
     const liquidityB = BigInt(b.liquidity?.toString() || "0");
-    return liquidityB > liquidityA ? 1 : -1;
+
+    // 按流动性降序排序
+    if (liquidityB > liquidityA) {
+      return 1;
+    }
+    if (liquidityB < liquidityA) {
+      return -1;
+    }
+    // 如果流动性相同，可以按费率排序作为次要条件（费率越低越好）
+    return a.fee - b.fee;
   });
 
-  // 返回所有符合条件的池子的 index（按费率从低到高排序）
-  // 虽然只做 A-B 直接兑换，但同一交易对可能有多个池子（不同费率），返回所有池子让合约选择最优路径
-  return sortedPools.map((pool) => pool.index);
+  // 只返回流动性最大的池子的 index
+  return [sortedPools[0].index];
 }
 
 /**
@@ -190,5 +241,75 @@ export function calculateAmountInMaximum(
   const maximum =
     (estimatedAmountIn * BigInt(Math.floor((1 + slippage) * 10000))) /
     BigInt(10000);
-  return maximum;
+  return BigInt(1000000000000000000) > maximum
+    ? BigInt(1000000000000000000)
+    : maximum;
+}
+
+/**
+ * 验证 sqrtPriceLimitX96 是否符合限价逻辑
+ * @param currentSqrtPriceX96 - 当前池子的 sqrtPriceX96
+ * @param sqrtPriceLimitX96 - 限价 sqrtPriceX96
+ * @param tickLower - 池子的下界 tick
+ * @param tickUpper - 池子的上界 tick
+ * @param zeroForOne - 是否为 token0 -> token1 的交易方向
+ * @returns 验证结果对象 { isValid: boolean, reason?: string }
+ */
+export function validateSqrtPriceLimitX96(
+  currentSqrtPriceX96: bigint | string,
+  sqrtPriceLimitX96: bigint | string,
+  tickLower: number,
+  tickUpper: number,
+  zeroForOne: boolean
+): { isValid: boolean; reason?: string } {
+  const currentSqrtPrice =
+    typeof currentSqrtPriceX96 === "string"
+      ? BigInt(currentSqrtPriceX96)
+      : currentSqrtPriceX96;
+  const limitSqrtPrice =
+    typeof sqrtPriceLimitX96 === "string"
+      ? BigInt(sqrtPriceLimitX96)
+      : sqrtPriceLimitX96;
+
+  // 计算池子的价格边界
+  const sqrtPriceLowerX96 = tickToSqrtPriceX96(tickLower);
+  const sqrtPriceUpperX96 = tickToSqrtPriceX96(tickUpper);
+
+  if (zeroForOne) {
+    // token0 -> token1，价格下降
+    // 1. sqrtPriceLimitX96 必须 < 当前 sqrtPriceX96（价格下降）
+    if (limitSqrtPrice >= currentSqrtPrice) {
+      return {
+        isValid: false,
+        reason: `限价 ${limitSqrtPrice.toString()} 必须小于当前价格 ${currentSqrtPrice.toString()}（价格下降）`,
+      };
+    }
+
+    // 2. sqrtPriceLimitX96 必须 >= sqrtPriceLowerX96（不能低于池子的最低价格）
+    if (limitSqrtPrice < sqrtPriceLowerX96) {
+      return {
+        isValid: false,
+        reason: `限价 ${limitSqrtPrice.toString()} 不能低于池子的最低价格 ${sqrtPriceLowerX96.toString()}`,
+      };
+    }
+  } else {
+    // token1 -> token0，价格上升
+    // 1. sqrtPriceLimitX96 必须 > 当前 sqrtPriceX96（价格上升）
+    if (limitSqrtPrice <= currentSqrtPrice) {
+      return {
+        isValid: false,
+        reason: `限价 ${limitSqrtPrice.toString()} 必须大于当前价格 ${currentSqrtPrice.toString()}（价格上升）`,
+      };
+    }
+
+    // 2. sqrtPriceLimitX96 必须 <= sqrtPriceUpperX96（不能高于池子的最高价格）
+    if (limitSqrtPrice > sqrtPriceUpperX96) {
+      return {
+        isValid: false,
+        reason: `限价 ${limitSqrtPrice.toString()} 不能高于池子的最高价格 ${sqrtPriceUpperX96.toString()}`,
+      };
+    }
+  }
+
+  return { isValid: true };
 }
