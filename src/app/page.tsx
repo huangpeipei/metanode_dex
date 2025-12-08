@@ -10,7 +10,7 @@ export default function TradePage() {
       <div className="relative z-10 flex flex-col items-center justify-center">
         <Header />
 
-        <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="flex justify-center items-center container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="max-w-4xl mx-auto">
             {/* Page Title */}
             <div className="mb-8">

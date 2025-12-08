@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Header } from "@/src/components/Header";
 import { AddPositionModal } from "@/src/components/AddPositionModal";
 import { usePositions } from "@/src/hooks/usePositions";
@@ -90,17 +90,33 @@ export default function PositionsPage() {
     refetchPositions();
   }
 
+  // 按流动性从高到低排序头寸
+  const sortedPositions = useMemo(() => {
+    if (!positions || positions.length === 0) return [];
+
+    return [...positions].sort((a, b) => {
+      // 使用原始流动性值（BigInt）进行排序
+      const liquidityA = BigInt(a.raw?.liquidity?.toString() || "0");
+      const liquidityB = BigInt(b.raw?.liquidity?.toString() || "0");
+
+      // 从高到低排序
+      if (liquidityB > liquidityA) return 1;
+      if (liquidityB < liquidityA) return -1;
+      return 0;
+    });
+  }, [positions]);
+
   return (
     <div className="min-h-screen relative">
       {/* Background gradient overlay */}
       <div className="fixed inset-0 bg-gradient-to-br from-indigo-950/20 via-purple-950/20 to-pink-950/20 pointer-events-none" />
 
-      <div className="relative z-10">
+      <div className="relative z-10 flex flex-col items-center justify-center">
         <Header />
 
-        <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="flex flex-col justify-center items-start container mx-auto px-4 sm:px-6 lg:px-8 py-8 gap-4">
           {/* Page Header */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
+          <div className="w-full flex justify-between mb-8">
             <div>
               <h1 className="text-4xl font-bold mb-2">
                 <span className="gradient-text">我的头寸</span>
@@ -252,128 +268,138 @@ export default function PositionsPage() {
                 </div>
               </div>
 
-              {/* Positions Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {positions.map((position) => (
-                  <div
-                    key={position.id}
-                    className="glass rounded-2xl p-6 border border-white/10 hover:border-white/20 transition-all"
-                  >
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex -space-x-2">
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 border-2 border-white/20 flex items-center justify-center text-sm font-bold text-white">
-                            {position.token1.symbol[0]}
-                          </div>
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 border-2 border-white/20 flex items-center justify-center text-sm font-bold text-white">
-                            {position.token2.symbol[0]}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-white font-bold text-lg">
-                            {position.pair}
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            池子份额: {position.share}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Token Amounts */}
-                    <div className="space-y-3 mb-6">
-                      <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm text-gray-400">
-                            {position.token1.symbol}
-                          </span>
-                          <span className="text-white font-semibold">
-                            {position.token1.amount}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {position.token1.value}
-                        </div>
-                      </div>
-                      <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm text-gray-400">
-                            {position.token2.symbol}
-                          </span>
-                          <span className="text-white font-semibold">
-                            {position.token2.amount}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {position.token2.value}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Liquidity & Fees */}
-                    <div className="space-y-3 mb-6">
-                      <div className="flex justify-between items-center p-3 rounded-lg bg-white/5">
-                        <span className="text-sm text-gray-400">
+              {/* Positions Table */}
+              <div className="w-full glass rounded-2xl border border-white/10 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-white/10">
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                          交易对
+                        </th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                          Token0 数量
+                        </th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                          Token1 数量
+                        </th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                           流动性价值
-                        </span>
-                        <span className="text-white font-bold">
-                          {position.liquidity}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                        <span className="text-sm text-green-400">
+                        </th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                           未领取费用
-                        </span>
-                        <span className="text-green-400 font-bold">
-                          {position.unclaimedFees}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => handleBurnPosition(position)}
-                        disabled={
-                          isTxPending ||
-                          isTxConfirming ||
-                          (activePositionId === position.id &&
-                            activeAction === "collect")
-                        }
-                        className="flex-1 py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium transition-colors border border-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {activePositionId === position.id &&
-                        activeAction === "burn"
-                          ? isTxConfirming
-                            ? "销毁确认中..."
-                            : isTxPending
-                            ? "销毁提交中..."
-                            : "销毁头寸"
-                          : "销毁头寸"}
-                      </button>
-                      <button
-                        onClick={() => handleCollectFees(position)}
-                        disabled={
-                          isTxPending ||
-                          isTxConfirming ||
-                          (activePositionId === position.id &&
-                            activeAction === "burn")
-                        }
-                        className="flex-1 py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 font-medium transition-colors border border-green-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {activePositionId === position.id &&
-                        activeAction === "collect"
-                          ? isTxConfirming
-                            ? "提现确认中..."
-                            : isTxPending
-                            ? "提现提交中..."
-                            : "提取手续费"
-                          : "提取手续费"}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                        </th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                          池子份额
+                        </th>
+                        <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                          操作
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedPositions.map((position) => (
+                        <tr
+                          key={position.id}
+                          className="border-b border-white/5 hover:bg-white/5 transition-colors"
+                        >
+                          <td className="px-6 py-4">
+                            <div className="flex items-center space-x-2">
+                              <div className="flex -space-x-2">
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 border-2 border-white/20 flex items-center justify-center text-xs font-bold text-white">
+                                  {position.token1?.symbol?.[0] || "?"}
+                                </div>
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 border-2 border-white/20 flex items-center justify-center text-xs font-bold text-white">
+                                  {position.token2?.symbol?.[0] || "?"}
+                                </div>
+                              </div>
+                              <span className="text-white font-semibold">
+                                {position.pair || "--"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div>
+                              <div className="text-white font-semibold">
+                                {position.token1?.amount || "--"}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {position.token1?.symbol || "--"}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div>
+                              <div className="text-white font-semibold">
+                                {position.token2?.amount || "--"}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {position.token2?.symbol || "--"}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-white font-semibold">
+                              {position.liquidity || "--"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-green-400 font-semibold">
+                              {position.unclaimedFees || "--"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-white font-semibold text-sm">
+                              {position.share || "--"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleBurnPosition(position)}
+                                disabled={
+                                  isTxPending ||
+                                  isTxConfirming ||
+                                  (activePositionId === position.id &&
+                                    activeAction === "collect")
+                                }
+                                className="px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium text-sm transition-colors border border-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {activePositionId === position.id &&
+                                activeAction === "burn"
+                                  ? isTxConfirming
+                                    ? "确认中..."
+                                    : isTxPending
+                                    ? "提交中..."
+                                    : "销毁"
+                                  : "销毁"}
+                              </button>
+                              <button
+                                onClick={() => handleCollectFees(position)}
+                                disabled={
+                                  isTxPending ||
+                                  isTxConfirming ||
+                                  (activePositionId === position.id &&
+                                    activeAction === "burn")
+                                }
+                                className="px-4 py-2 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-400 font-medium text-sm transition-colors border border-green-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {activePositionId === position.id &&
+                                activeAction === "collect"
+                                  ? isTxConfirming
+                                    ? "确认中..."
+                                    : isTxPending
+                                    ? "提交中..."
+                                    : "提取"
+                                  : "提取"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           )}
