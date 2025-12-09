@@ -540,7 +540,7 @@ export function useSwap() {
     }
 
     const amountOutWei = parseUnits(amountOut, 18);
-    const estimatedAmountIn = BigInt(0);
+    const estimatedAmountIn = BigInt(parseUnits(amountIn, 18) || "0");
     const amountInMaximum = calculateAmountInMaximum(
       estimatedAmountIn,
       slippagePercent
@@ -549,6 +549,16 @@ export function useSwap() {
     // 计算 deadline（当前时间 + 20 分钟）
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
+    console.log("executeExactOutput", {
+      tokenIn,
+      tokenOut,
+      indexPath,
+      recipient: address,
+      deadline,
+      amountOut: amountOutWei,
+      amountInMaximum,
+      sqrtPriceLimitX96,
+    });
     try {
       await writeContract({
         address: SWAP_ROUTER_ADDRESS,
@@ -615,7 +625,12 @@ export function useSwap() {
       }
 
       const currentAllowance = (tokenInAllowance as bigint) || BigInt(0);
-
+      console.log(
+        "currentAllowance",
+        currentAllowance,
+        requiredAmount,
+        inputMode
+      );
       if (currentAllowance < requiredAmount) {
         // 需要授权，先执行授权
         // 将执行函数存储到 ref 中，供授权确认后使用
@@ -635,6 +650,20 @@ export function useSwap() {
 
     // 如果不需要授权或授权已完成，直接执行交易
     setApprovalStep("swapping");
+    console.log("executeSwap", {
+      inputMode,
+      tokenIn,
+      tokenOut,
+      address,
+      amountIn,
+      amountOut,
+      indexPath,
+      selectedPool,
+      quoteExactInputData,
+      quoteExactOutputData,
+      slippagePercent,
+      isConnected,
+    });
     if (inputMode === "in") {
       await executeExactInput();
     } else {

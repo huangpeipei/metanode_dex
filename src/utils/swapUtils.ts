@@ -241,9 +241,12 @@ export function calculateAmountInMaximum(
   const maximum =
     (estimatedAmountIn * BigInt(Math.floor((1 + slippage) * 10000))) /
     BigInt(10000);
-  return BigInt(1000000000000000000) > maximum
-    ? BigInt(1000000000000000000)
-    : maximum;
+  console.log("calculateAmountInMaximum", {
+    estimatedAmountIn,
+    slippagePercent,
+    maximum,
+  });
+  return maximum;
 }
 
 /**
@@ -274,7 +277,14 @@ export function validateSqrtPriceLimitX96(
   // 计算池子的价格边界
   const sqrtPriceLowerX96 = tickToSqrtPriceX96(tickLower);
   const sqrtPriceUpperX96 = tickToSqrtPriceX96(tickUpper);
-
+  console.log("validateSqrtPriceLimitX96", {
+    currentSqrtPrice,
+    limitSqrtPrice,
+    compare: limitSqrtPrice >= currentSqrtPrice,
+    tickLower,
+    tickUpper,
+    zeroForOne,
+  });
   if (zeroForOne) {
     // token0 -> token1，价格下降
     // 1. sqrtPriceLimitX96 必须 < 当前 sqrtPriceX96（价格下降）
