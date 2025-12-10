@@ -29,7 +29,7 @@ function sqrtPriceX96ToSqrtPrice(sqrtPriceX96: bigint): number {
 
 /**
  * 计算从流动性头寸中能收回的代币数量
- * 
+ *
  * @param liquidity - 流动性值 (uint128)
  * @param tickLower - 价格下限 tick
  * @param tickUpper - 价格上限 tick
@@ -90,7 +90,7 @@ export function calculateTokenAmountsFromLiquidity(
     // 情况 3: tickLower < 当前价格 < tickUpper，同时收回 token0 和 token1
     // amount0 = liquidity * (sqrtPriceUpper - sqrtPriceCurrent) / (sqrtPriceCurrent * sqrtPriceUpper) * Q96
     // amount1 = liquidity * (sqrtPriceCurrent - sqrtPriceLower) / Q96
-    
+
     // Token0 计算
     const sqrtPriceDiff0 = sqrtPriceUpper - sqrtPriceCurrent;
     const denominator0 = (sqrtPriceCurrent * sqrtPriceUpper) / Q96;
@@ -141,7 +141,7 @@ function formatTokenAmount(amount: bigint, decimals: number = 18): string {
 
 /**
  * 计算头寸的完整收回信息（包括未领取费用）
- * 
+ *
  * @param position - 头寸数据
  * @param currentTick - 当前价格 tick（可选）
  * @param sqrtPriceX96 - 当前 sqrtPriceX96（可选）
@@ -212,5 +212,3 @@ export function calculatePositionWithdrawal(
     totalAmount1Formatted: formatTokenAmount(totalAmount1, 18),
   };
 }
-
-
